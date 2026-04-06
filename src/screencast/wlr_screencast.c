@@ -26,6 +26,15 @@
 #include "logger.h"
 #include "fps_limit.h"
 
+void xdpw_wlr_frame_capture_start_without_fps(struct xdpw_screencast_instance *cast) {
+	if (cast->ctx->ext_image_copy_capture_manager
+			&& cast->ctx->ext_output_image_capture_source_manager) {
+		xdpw_ext_ic_frame_capture(cast);
+	} else if (cast->ctx->screencopy_manager) {
+		xdpw_wlr_sc_frame_capture(cast);
+	}
+}
+
 static void wlr_frame_capture_start(struct xdpw_screencast_instance *cast) {
 	fps_limit_measure_start(&cast->fps_limit, cast->framerate);
 	if (cast->ctx->ext_image_copy_capture_manager
