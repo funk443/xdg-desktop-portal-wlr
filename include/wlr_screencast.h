@@ -24,6 +24,7 @@ bool xdpw_wlr_target_chooser(struct xdpw_screencast_context *ctx, struct xdpw_sc
 bool xdpw_wlr_target_from_data(struct xdpw_screencast_context *ctx, struct xdpw_screencast_target *target,
 		struct xdpw_screencast_restore_data *data);
 
+void xdpw_wlr_frame_capture_start_without_fps(struct xdpw_screencast_instance *cast);
 void xdpw_wlr_frame_capture(struct xdpw_screencast_instance *cast);
 int xdpw_wlr_session_init(struct xdpw_screencast_instance *cast);
 void xdpw_wlr_session_close(struct xdpw_screencast_instance *cast);

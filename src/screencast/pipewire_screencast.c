@@ -329,7 +329,7 @@ done:
 	cast->current_frame.pw_buffer = NULL;
 }
 
-static void pwr_capture_one(void *data) {
+static void pwr_capture_one(void *data, uint64_t expirations) {
 	struct xdpw_screencast_instance *cast = data;
 
 	if (!cast->pwr_stream_state) {
@@ -339,18 +339,16 @@ static void pwr_capture_one(void *data) {
 
 	if (cast->current_frame.pw_buffer) {
 		logprint(DEBUG, "pipewire: buffer already exported");
-		goto trigger_graph;
+		return;
 	}
 
 	xdpw_pwr_dequeue_buffer(cast);
 	if (!cast->current_frame.pw_buffer) {
 		logprint(WARN, "pipewire: unable to export buffer");
-		goto trigger_graph;
+		return;
 	}
 
-	xdpw_wlr_frame_capture(cast);
-
-trigger_graph:
+	xdpw_wlr_frame_capture_start_without_fps(cast);
 	pw_stream_trigger_process(cast->stream);
 }
 
@@ -376,6 +374,9 @@ void pwr_update_stream_param(struct xdpw_screencast_instance *cast) {
 static void pwr_handle_stream_state_changed(void *data,
 		enum pw_stream_state old, enum pw_stream_state state, const char *error) {
 	struct xdpw_screencast_instance *cast = data;
+	struct xdpw_screencast_context *ctx = cast->ctx;
+	struct xdpw_state *pwr_state = ctx->state;
+
 	cast->node_id = pw_stream_get_node_id(cast->stream);
 
 	logprint(INFO, "pipewire: stream state changed to \"%s\"",
@@ -385,7 +386,19 @@ static void pwr_handle_stream_state_changed(void *data,
 	switch (state) {
 	case PW_STREAM_STATE_STREAMING:
 		cast->pwr_stream_state = true;
-		pwr_capture_one(cast);
+
+		struct timespec timeout = {
+			.tv_sec = 0,
+			.tv_nsec = 1,
+		};
+		struct timespec interval = {
+			.tv_sec = 0,
+			.tv_nsec = (1.0 / cast->framerate) * TIMESPEC_NSEC_PER_SEC,
+		};
+
+		pw_loop_update_timer(pwr_state->pw_loop,
+			cast->pwr_timer, &timeout, &interval, false);
+
 		break;
 	case PW_STREAM_STATE_PAUSED:
 		if (old == PW_STREAM_STATE_STREAMING) {
@@ -394,6 +407,8 @@ static void pwr_handle_stream_state_changed(void *data,
 		// fall through
 	default:
 		cast->pwr_stream_state = false;
+		pw_loop_update_timer(pwr_state->pw_loop,
+			cast->pwr_timer, NULL, NULL, false);
 		break;
 	}
 }
@@ -613,22 +628,12 @@ static void pwr_handle_stream_remove_buffer(void *data, struct pw_buffer *buffer
 	buffer->user_data = NULL;
 }
 
-static void pwr_handle_stream_trigger_done(void *data) {
-	struct xdpw_screencast_instance *cast = data;
-	uint64_t delay_ns = fps_limit_measure_end(&cast->fps_limit, cast->framerate);
-	if (delay_ns <= 0) {
-		delay_ns = (1.0 / cast->framerate) * TIMESPEC_NSEC_PER_SEC;
-	}
-	xdpw_add_timer(cast->ctx->state, delay_ns, pwr_capture_one, cast);
-}
-
 static const struct pw_stream_events pwr_stream_events = {
 	PW_VERSION_STREAM_EVENTS,
 	.state_changed = pwr_handle_stream_state_changed,
 	.param_changed = pwr_handle_stream_param_changed,
 	.add_buffer = pwr_handle_stream_add_buffer,
 	.remove_buffer = pwr_handle_stream_remove_buffer,
-	.trigger_done = pwr_handle_stream_trigger_done,
 };
 
 void xdpw_pwr_stream_create(struct xdpw_screencast_instance *cast) {
@@ -656,6 +661,7 @@ void xdpw_pwr_stream_create(struct xdpw_screencast_instance *cast) {
 		abort();
 	}
 	cast->pwr_stream_state = false;
+	cast->pwr_timer = pw_loop_add_timer(state->pw_loop, pwr_capture_one, cast);
 
 	build_formats(&builder.b, cast, &params);
 

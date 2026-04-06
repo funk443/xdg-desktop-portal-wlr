@@ -194,6 +194,7 @@ struct xdpw_screencast_instance {
 	struct pw_stream *stream;
 	struct spa_hook stream_listener;
 	struct spa_video_info_raw pwr_format;
+	struct spa_source *pwr_timer;
 	uint32_t seq;
 	uint32_t node_id;
 	bool pwr_stream_state;
